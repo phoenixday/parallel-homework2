@@ -1,21 +1,48 @@
-#include <mpi.h>
+#include "mpi.h"
+#include <random>
 
-int main() {
-    MPI_Init(NULL, NULL);      // initialize MPI environment
-    int world_size; // number of processes
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+int get_random(int color) {
+    if (color == 0) return 0;
+    std::random_device rd; // obtain a random number from hardware
+    std::mt19937 gen(rd()); // seed the generator
+    std::uniform_int_distribution<> distr(0, 1); // define the range
+    return distr(gen);
+}
 
-    int world_rank; // the rank of the process
+int main(int argc, char *argv[]) {
+    MPI_Init(&argc, &argv); //initialize MPI library
+    int world_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    if (world_rank == 0) printf("485739\n");
 
-    char processor_name[MPI_MAX_PROCESSOR_NAME]; // gets the name of the processor
-    int name_len;
-    MPI_Get_processor_name(processor_name, &name_len);
+    MPI_Comm new_comm;
+    int round = 0, color = 1, new_color, new_comm_size;
 
-    printf("Hello world from processor %s, rank %d out of %d processors\n",
-           processor_name, world_rank, world_size);
+    do {
+        do {
+            new_color = get_random(color);
+            MPI_Comm_split(MPI_COMM_WORLD, new_color, world_rank, &new_comm);
+            MPI_Comm_size(new_comm, &new_comm_size);
+        } while (new_comm_size == 6 && new_color == 0);
+        color = new_color;
+        round++;
+    } while(!((new_comm_size == 5 && color == 0) || (new_comm_size == 1 && color == 1)));
 
-    MPI_Finalize(); // finish MPI environment
+    MPI_Request request;
+    if (color == 1) {
+        int winner_rank = world_rank;
+        MPI_Isend(&winner_rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &request);
+    }
+    int winner = 0;
+    if (world_rank == 0) {
+        MPI_Irecv(&winner, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &request);
+        MPI_Wait(&request, MPI_STATUS_IGNORE);
+    }
 
+    MPI_Bcast(&winner, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    printf("Sloužím ti, můj vládče, slunce naše jasné.%d\n", winner);
+
+    MPI_Comm_free(&new_comm);
+    MPI_Finalize(); //MPI cleanup
     return 0;
 }
